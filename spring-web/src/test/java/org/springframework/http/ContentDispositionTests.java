@@ -16,6 +16,7 @@
 
 package org.springframework.http;
 
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -311,6 +312,31 @@ class ContentDispositionTests {
 		tester.accept("foo.txt\\", "foo.txt\\\\");
 		tester.accept("foo.txt\\\\", "foo.txt\\\\\\\\");
 		tester.accept("foo.txt\\\\\\", "foo.txt\\\\\\\\\\\\");
+	}
+
+	@Test
+	void formatWithUtf8FilenameWithQuotes() {
+		String filename = "\"中文.txt";
+		assertThat(ContentDisposition.formData().filename(filename, StandardCharsets.UTF_8).build().toString())
+				.isEqualTo("form-data; filename=\"=?UTF-8?Q?=22=E4=B8=AD=E6=96=87.txt?=\"; filename*=UTF-8''%22%E4%B8%AD%E6%96%87.txt");
+	}
+
+	@Test
+	void formatWithEncodedFilenameDoesNotAllowParameterInjection() {
+		String filename = "中文\"; filename=\"evil.cmd";
+		String header = ContentDisposition.attachment().filename(filename, StandardCharsets.UTF_8).build().toString();
+		assertThat(header).isEqualTo("attachment; filename=\"=?UTF-8?Q?=E4=B8=AD=E6=96=87=22;_filename=3D=22evil.cmd?=\"; " +
+				"filename*=UTF-8''%E4%B8%AD%E6%96%87%22%3B%20filename%3D%22evil.cmd");
+
+		BiConsumer<String, Charset> tester = (input, charset) -> {
+			String value = ContentDisposition.attachment().filename(input, charset).build().toString();
+			String legacyOnly = value.substring(0, value.indexOf("; filename*="));
+			assertThat(legacyOnly).doesNotContain("filename=\"evil");
+			assertThat(parse(legacyOnly).getFilename()).isEqualTo(input);
+		};
+		tester.accept(filename, StandardCharsets.UTF_8);
+		tester.accept("café\"; filename=\"evil.cmd", StandardCharsets.ISO_8859_1);
+		tester.accept("\"\"é\"", StandardCharsets.ISO_8859_1);
 	}
 
 	@Test
